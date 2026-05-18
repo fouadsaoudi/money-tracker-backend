@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Currency;
 use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -35,6 +36,14 @@ class AuthApiTest extends TestCase
 
         $this->assertDatabaseHas('users', [
             'email' => 'fouad@example.com',
+        ]);
+        $this->assertDatabaseHas('categories', [
+            'user_id' => User::query()->where('email', 'fouad@example.com')->value('id'),
+            'name' => 'Salary',
+        ]);
+        $this->assertDatabaseHas('users', [
+            'email' => 'fouad@example.com',
+            'reporting_currency_id' => Currency::query()->where('code', 'USD')->value('id'),
         ]);
     }
 

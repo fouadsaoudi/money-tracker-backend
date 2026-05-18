@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\UserSetupService;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
@@ -23,7 +24,7 @@ class AuthController extends Controller
      * @bodyParam password_confirmation string required Password confirmation. Example: Google_2
      * @bodyParam device_name string Device name. Example: mobile-app
      */
-    public function register(Request $request): JsonResponse
+    public function register(Request $request, UserSetupService $userSetupService): JsonResponse
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -37,6 +38,9 @@ class AuthController extends Controller
             'email' => $validated['email'],
             'password' => $validated['password'],
         ]);
+
+        $userSetupService->initialize($user);
+        $user->load('reportingCurrency');
 
         $token = $user->createToken($validated['device_name'] ?? 'mobile-app')->plainTextToken;
 
@@ -70,6 +74,7 @@ class AuthController extends Controller
         }
 
         $token = $user->createToken($validated['device_name'] ?? 'mobile-app')->plainTextToken;
+        $user->load('reportingCurrency');
 
         return response()->json([
             'message' => 'Logged in successfully.',
