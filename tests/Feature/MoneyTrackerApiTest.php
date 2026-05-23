@@ -7,7 +7,10 @@ use App\Models\ExchangeRate;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\UserSetupService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -69,8 +72,55 @@ class MoneyTrackerApiTest extends TestCase
             ->assertJsonValidationErrors(['currency_id']);
     }
 
+    public function test_wallet_balance_update_creates_adjustment_transaction(): void
+    {
+        Carbon::setTestNow('2026-05-20 12:40:00');
+
+        $user = $this->signInFinancialUser();
+        $usd = Currency::query()->where('code', 'USD')->firstOrFail();
+        $wallet = $user->wallets()->where('currency_id', $usd->id)->firstOrFail();
+
+        $this->patchJson("/api/wallets/{$wallet->id}", [
+            'name' => 'Cash',
+            'balance' => '125',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Cash')
+            ->assertJsonPath('data.balance', '125.0000');
+
+        $this->assertDatabaseHas('categories', [
+            'user_id' => $user->id,
+            'name' => 'Wallet adjustment',
+        ]);
+        $this->assertDatabaseHas('transactions', [
+            'user_id' => $user->id,
+            'wallet_id' => $wallet->id,
+            'type' => 'incoming',
+            'amount' => '125.0000',
+            'note' => 'Wallet adjustment',
+            'converted_amount' => '125.0000',
+        ]);
+
+        $this->patchJson("/api/wallets/{$wallet->id}", [
+            'balance' => '100',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('transactions', [
+            'user_id' => $user->id,
+            'wallet_id' => $wallet->id,
+            'type' => 'outgoing',
+            'amount' => '25.0000',
+            'note' => 'Wallet adjustment',
+            'converted_amount' => '-25.0000',
+        ]);
+
+        Carbon::setTestNow();
+    }
+
     public function test_user_can_create_goal_and_contribution_creates_linked_transaction(): void
     {
+        Storage::fake('public');
+
         $user = $this->signInFinancialUser();
         $usd = Currency::query()->where('code', 'USD')->firstOrFail();
         $wallet = $user->wallets()->where('currency_id', $usd->id)->firstOrFail();
@@ -88,15 +138,20 @@ class MoneyTrackerApiTest extends TestCase
 
         $goalId = $goalResponse->json('data.id');
 
-        $this->postJson('/api/goals/'.$goalId.'/contributions', [
+        $this->post('/api/goals/'.$goalId.'/contributions', [
             'wallet_id' => $wallet->id,
             'amount' => '1200',
             'occurred_on' => '2026-05-02 09:00:00',
             'note' => 'First payment',
+            'invoice_images' => [
+                UploadedFile::fake()->image('goal-invoice.jpg'),
+                UploadedFile::fake()->image('goal-invoice-2.jpg'),
+            ],
         ])
             ->assertCreated()
             ->assertJsonPath('data.current_amount', '1200.0000')
-            ->assertJsonPath('data.remaining_amount', '92800.0000');
+            ->assertJsonPath('data.remaining_amount', '92800.0000')
+            ->assertJsonCount(2, 'data.recent_contributions.0.transaction.invoice_images');
 
         $this->assertDatabaseHas('wallets', [
             'id' => $wallet->id,
@@ -108,6 +163,13 @@ class MoneyTrackerApiTest extends TestCase
             'type' => 'outgoing',
             'amount' => '1200.0000',
         ]);
+        $transaction = Transaction::query()
+            ->where('user_id', $user->id)
+            ->where('wallet_id', $wallet->id)
+            ->where('type', 'outgoing')
+            ->where('amount', '1200.0000')
+            ->firstOrFail();
+        $this->assertCount(2, $transaction->invoiceImages()->get());
         $this->assertDatabaseHas('goal_contributions', [
             'goal_id' => $goalId,
             'amount' => '1200.0000',
@@ -197,7 +259,7 @@ class MoneyTrackerApiTest extends TestCase
 
         $this->getJson('/api/dashboard')
             ->assertOk()
-            ->assertJsonPath('combined_balance', '99.5000')
+            ->assertJsonPath('combined_balance', '100.5000')
             ->assertJsonPath('combined_income', '100.0000')
             ->assertJsonPath('combined_expense', '0.5000')
             ->assertJsonCount(2, 'totals_by_currency');
@@ -210,6 +272,143 @@ class MoneyTrackerApiTest extends TestCase
             'id' => $lbpWallet->id,
             'balance' => '50000.0000',
         ]);
+    }
+
+    public function test_dashboard_returns_daily_spending_budget(): void
+    {
+        Carbon::setTestNow('2026-05-20 12:00:00');
+
+        $user = $this->signInFinancialUser();
+        $category = $user->categories()->where('name', 'Food')->firstOrFail();
+        $usd = Currency::query()->where('code', 'USD')->firstOrFail();
+        $lbp = Currency::query()->where('code', 'LBP')->firstOrFail();
+        $user->wallets()->where('currency_id', $usd->id)->firstOrFail()
+            ->forceFill(['balance' => '500.0000'])
+            ->save();
+
+        ExchangeRate::query()->create([
+            'user_id' => $user->id,
+            'from_currency_id' => $usd->id,
+            'to_currency_id' => $lbp->id,
+            'rate' => '100000.00000000',
+            'effective_at' => '2026-05-01 00:00:00',
+        ]);
+
+        Transaction::query()->create([
+            'user_id' => $user->id,
+            'category_id' => $category->id,
+            'currency_id' => $usd->id,
+            'type' => 'incoming',
+            'amount' => '530.0000',
+            'occurred_on' => '2026-05-01 08:00:00',
+            'reporting_currency_id' => $usd->id,
+            'exchange_rate_snapshot' => '1.00000000',
+            'converted_amount' => '530.0000',
+        ]);
+
+        Transaction::query()->create([
+            'user_id' => $user->id,
+            'category_id' => $category->id,
+            'currency_id' => $usd->id,
+            'type' => 'outgoing',
+            'amount' => '30.0000',
+            'occurred_on' => '2026-05-20 09:00:00',
+            'reporting_currency_id' => $usd->id,
+            'exchange_rate_snapshot' => '1.00000000',
+            'converted_amount' => '-30.0000',
+        ]);
+
+        $this->getJson('/api/dashboard')
+            ->assertOk()
+            ->assertJsonPath('combined_balance', '500.0000')
+            ->assertJsonPath('daily_spending.days_until_month_end', 11)
+            ->assertJsonPath('daily_spending.budget_today', '48.1818')
+            ->assertJsonPath('daily_spending.budget_today_secondary.amount', '4818181.8182')
+            ->assertJsonPath('daily_spending.budget_today_secondary.currency.code', 'LBP')
+            ->assertJsonPath('daily_spending.spent_today', '30.0000')
+            ->assertJsonPath('daily_spending.remaining_today', '18.1818');
+
+        Carbon::setTestNow();
+    }
+
+    public function test_dashboard_balance_uses_wallet_balances_when_there_are_no_transactions(): void
+    {
+        Carbon::setTestNow('2026-05-20 12:00:00');
+
+        $user = $this->signInFinancialUser();
+        $usd = Currency::query()->where('code', 'USD')->firstOrFail();
+        $user->wallets()->where('currency_id', $usd->id)->firstOrFail()
+            ->forceFill(['balance' => '2400.0000'])
+            ->save();
+
+        $this->getJson('/api/dashboard')
+            ->assertOk()
+            ->assertJsonPath('combined_balance', '2400.0000')
+            ->assertJsonPath('combined_income', '0.0000')
+            ->assertJsonPath('combined_expense', '0.0000')
+            ->assertJsonPath('daily_spending.days_until_month_end', 11)
+            ->assertJsonPath('daily_spending.budget_today', '218.1818')
+            ->assertJsonPath('daily_spending.spent_today', '0.0000')
+            ->assertJsonPath('daily_spending.remaining_today', '218.1818');
+
+        Carbon::setTestNow();
+    }
+
+    public function test_transaction_can_store_and_remove_invoice_images(): void
+    {
+        Storage::fake('public');
+        Carbon::setTestNow('2026-05-19 00:00:00');
+
+        $user = $this->signInFinancialUser();
+        $category = $user->categories()->where('name', 'Food')->firstOrFail();
+        $wallet = $user->wallets()->firstOrFail();
+
+        $response = $this->post('/api/transactions', [
+            'category_id' => $category->id,
+            'wallet_id' => $wallet->id,
+            'type' => 'outgoing',
+            'amount' => '12.50',
+            'occurred_on' => '2026-05-18 12:00:00',
+            'invoice_images' => [
+                UploadedFile::fake()->image('invoice.jpg'),
+                UploadedFile::fake()->image('second-invoice.jpg'),
+            ],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.amount', '12.5000')
+            ->assertJsonPath('data.invoice_image_url', fn (?string $url) => str_contains((string) $url, '/storage/transaction-invoices/'.$user->id.'/may_19_2026_12_00_00_am.jpg'))
+            ->assertJsonCount(2, 'data.invoice_image_urls');
+
+        $transaction = Transaction::query()->findOrFail($response->json('data.id'));
+        $invoiceImages = $transaction->invoiceImages()->orderBy('id')->get();
+        $invoiceImagePaths = $invoiceImages->pluck('path')->all();
+        $this->assertCount(2, $invoiceImagePaths);
+        $this->assertStringEndsWith('/may_19_2026_12_00_00_am.jpg', $invoiceImagePaths[0]);
+        $this->assertStringEndsWith('/may_19_2026_12_00_00_am_2.jpg', $invoiceImagePaths[1]);
+        Storage::disk('public')->assertExists($invoiceImagePaths[0]);
+        Storage::disk('public')->assertExists($invoiceImagePaths[1]);
+
+        $this->patchJson('/api/transactions/'.$transaction->id, [
+            'remove_invoice_image_ids' => [$invoiceImages[1]->id],
+        ])
+            ->assertOk()
+            ->assertJsonCount(1, 'data.invoice_images')
+            ->assertJsonCount(1, 'data.invoice_image_urls');
+
+        Storage::disk('public')->assertExists($invoiceImagePaths[0]);
+        Storage::disk('public')->assertMissing($invoiceImagePaths[1]);
+
+        $this->patchJson('/api/transactions/'.$transaction->id, [
+            'remove_invoice_images' => true,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.invoice_image_url', null)
+            ->assertJsonCount(0, 'data.invoice_image_urls');
+
+        $transaction->refresh();
+        $this->assertCount(0, $transaction->invoiceImages()->get());
+        Storage::disk('public')->assertMissing($invoiceImagePaths[0]);
+        Carbon::setTestNow();
     }
 
     public function test_transaction_creation_fails_when_rate_is_missing(): void
@@ -283,7 +482,8 @@ class MoneyTrackerApiTest extends TestCase
 
         $this->getJson('/api/dashboard')
             ->assertOk()
-            ->assertJsonPath('combined_balance', '-1.5000');
+            ->assertJsonPath('combined_balance', '2.0000')
+            ->assertJsonPath('combined_expense', '1.5000');
     }
 
     public function test_deleting_category_with_transactions_archives_it_and_blocks_new_transactions(): void

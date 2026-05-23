@@ -37,6 +37,9 @@ class StoreTransactionRequest extends FormRequest
             'type' => ['required', Rule::in(['incoming', 'outgoing'])],
             'amount' => ['required', 'numeric', 'gt:0'],
             'note' => ['nullable', 'string'],
+            'invoice_image' => ['nullable', 'image', 'max:5120'],
+            'invoice_images' => ['nullable', 'array', 'max:8'],
+            'invoice_images.*' => ['image', 'max:5120'],
             'occurred_on' => ['required', 'date'],
         ];
     }
@@ -66,6 +69,14 @@ class StoreTransactionRequest extends FormRequest
             'note' => [
                 'description' => 'Optional free-text note for the record.',
                 'example' => 'Supermarket and household items',
+            ],
+            'invoice_image' => [
+                'description' => 'Optional invoice or receipt image. Deprecated; use invoice_images[] for multiple files.',
+                'example' => null,
+            ],
+            'invoice_images' => [
+                'description' => 'Optional invoice or receipt images.',
+                'example' => null,
             ],
             'occurred_on' => [
                 'description' => 'When the transaction happened.',

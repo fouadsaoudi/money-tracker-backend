@@ -10,7 +10,9 @@ use App\Models\Wallet;
 use App\Services\CurrencyConversionService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class GoalContributionController extends Controller
@@ -29,8 +31,9 @@ class GoalContributionController extends Controller
         abort_unless($goal->user_id === $request->user()->id, 404);
 
         $payload = $request->validated();
+        $invoiceImages = $this->invoiceImageFiles($request);
 
-        $goal = DB::transaction(function () use ($request, $goal, $payload): Goal {
+        $goal = DB::transaction(function () use ($request, $goal, $payload, $invoiceImages): Goal {
             $wallet = Wallet::query()
                 ->where('user_id', $request->user()->id)
                 ->whereKey((int) $payload['wallet_id'])
@@ -78,6 +81,8 @@ class GoalContributionController extends Controller
                 'converted_amount' => $snapshot['converted_amount'],
             ]);
 
+            $this->storeInvoiceImages($invoiceImages, $transaction);
+
             $wallet->forceFill([
                 'balance' => bcadd((string) $wallet->balance, bcmul((string) $payload['amount'], '-1', 4), 4),
             ])->save();
@@ -99,6 +104,7 @@ class GoalContributionController extends Controller
                 'currency',
                 'contributions' => fn ($query) => $query
                     ->with(['transaction.category', 'transaction.wallet.currency', 'transaction.currency', 'transaction.reportingCurrency'])
+                    ->with(['transaction.invoiceImages'])
                     ->orderByDesc('occurred_on')
                     ->orderByDesc('id'),
             ])
@@ -116,5 +122,54 @@ class GoalContributionController extends Controller
                 ? now()
                 : null,
         ])->save();
+    }
+
+    /**
+     * @return array<int, UploadedFile>
+     */
+    private function invoiceImageFiles(StoreGoalContributionRequest $request): array
+    {
+        $files = [];
+        $invoiceImages = $request->file('invoice_images', []);
+
+        if ($invoiceImages instanceof UploadedFile) {
+            $files[] = $invoiceImages;
+        } elseif (is_array($invoiceImages)) {
+            foreach ($invoiceImages as $image) {
+                if ($image instanceof UploadedFile) {
+                    $files[] = $image;
+                }
+            }
+        }
+
+        return $files;
+    }
+
+    /**
+     * @param array<int, UploadedFile> $images
+     */
+    private function storeInvoiceImages(array $images, $transaction): void
+    {
+        foreach ($images as $image) {
+            $transaction->invoiceImages()->create([
+                'path' => $this->storeInvoiceImage($image, $transaction),
+            ]);
+        }
+    }
+
+    private function storeInvoiceImage(UploadedFile $image, $transaction): string
+    {
+        $directory = "transaction-invoices/{$transaction->user_id}";
+        $extension = $image->extension();
+        $timestamp = strtolower(now()->format('F_j_Y_h_i_s_a'));
+        $filename = "{$timestamp}.{$extension}";
+        $counter = 2;
+
+        while (Storage::disk('public')->exists("{$directory}/{$filename}")) {
+            $filename = "{$timestamp}_{$counter}.{$extension}";
+            $counter++;
+        }
+
+        return $image->storeAs($directory, $filename, 'public');
     }
 }

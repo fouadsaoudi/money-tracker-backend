@@ -12,7 +12,9 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class TransactionController extends Controller
@@ -30,7 +32,7 @@ class TransactionController extends Controller
     {
         $query = $request->user()
             ->transactions()
-            ->with(['category', 'wallet.currency', 'currency', 'reportingCurrency'])
+            ->with(['category', 'wallet.currency', 'currency', 'reportingCurrency', 'invoiceImages'])
             ->orderByDesc('occurred_on')
             ->orderByDesc('id');
 
@@ -68,8 +70,10 @@ class TransactionController extends Controller
     public function store(StoreTransactionRequest $request): JsonResponse
     {
         $payload = $request->validated();
+        $invoiceImages = $this->invoiceImageFiles($request);
+        unset($payload['invoice_image'], $payload['invoice_images']);
 
-        $transaction = DB::transaction(function () use ($request, $payload): Transaction {
+        $transaction = DB::transaction(function () use ($request, $payload, $invoiceImages): Transaction {
             $wallet = $this->walletForTransaction($request, (int) $payload['wallet_id']);
             $snapshot = $this->currencyConversionService->snapshot(
                 $request->user()->loadMissing('reportingCurrency'),
@@ -87,6 +91,8 @@ class TransactionController extends Controller
                 'converted_amount' => $snapshot['converted_amount'],
             ]);
 
+            $this->storeInvoiceImages($invoiceImages, $transaction);
+
             $this->applyWalletDelta(
                 $wallet,
                 $this->signedAmount((string) $payload['type'], (string) $payload['amount'])
@@ -95,7 +101,7 @@ class TransactionController extends Controller
             return $transaction;
         });
 
-        $transaction->load(['category', 'wallet.currency', 'currency', 'reportingCurrency']);
+        $transaction->load(['category', 'wallet.currency', 'currency', 'reportingCurrency', 'invoiceImages']);
 
         return (new TransactionResource($transaction))
             ->response()
@@ -110,7 +116,7 @@ class TransactionController extends Controller
     {
         abort_unless($transaction->user_id === request()->user()->id, 404);
 
-        return new TransactionResource($transaction->load(['category', 'wallet.currency', 'currency', 'reportingCurrency']));
+        return new TransactionResource($transaction->load(['category', 'wallet.currency', 'currency', 'reportingCurrency', 'invoiceImages']));
     }
 
     /**
@@ -132,7 +138,7 @@ class TransactionController extends Controller
 
         $transaction = DB::transaction(function () use ($request, $transaction, $walletId): Transaction {
             $wallet = $this->walletForTransaction($request, $walletId);
-            $transaction->loadMissing('goalContribution.goal', 'sourceConversion', 'destinationConversion');
+            $transaction->loadMissing('goalContribution.goal', 'sourceConversion', 'destinationConversion', 'invoiceImages');
 
             if ($transaction->sourceConversion !== null || $transaction->destinationConversion !== null) {
                 throw ValidationException::withMessages([
@@ -201,6 +207,21 @@ class TransactionController extends Controller
                 'converted_amount' => $snapshot['converted_amount'],
             ])->save();
 
+            $invoiceImages = $this->invoiceImageFiles($request);
+            $removeInvoiceImages = $request->boolean('remove_invoice_image')
+                || $request->boolean('remove_invoice_images');
+
+            if ($removeInvoiceImages) {
+                $this->deleteTransactionInvoiceImages($transaction);
+            } else {
+                $this->deleteTransactionInvoiceImagesById(
+                    $transaction,
+                    $request->input('remove_invoice_image_ids', [])
+                );
+            }
+
+            $this->storeInvoiceImages($invoiceImages, $transaction);
+
             if ($transaction->goalContribution !== null) {
                 $transaction->goalContribution->forceFill([
                     'amount' => $payload['amount'],
@@ -213,7 +234,7 @@ class TransactionController extends Controller
             return $transaction;
         });
 
-        return new TransactionResource($transaction->refresh()->load(['category', 'wallet.currency', 'currency', 'reportingCurrency']));
+        return new TransactionResource($transaction->refresh()->load(['category', 'wallet.currency', 'currency', 'reportingCurrency', 'invoiceImages']));
     }
 
     /**
@@ -264,6 +285,12 @@ class TransactionController extends Controller
                 }
 
                 $conversion->delete();
+                if ($sourceTransaction !== null) {
+                    $this->deleteTransactionInvoiceImages($sourceTransaction->loadMissing('invoiceImages'));
+                }
+                if ($destinationTransaction !== null) {
+                    $this->deleteTransactionInvoiceImages($destinationTransaction->loadMissing('invoiceImages'));
+                }
                 $sourceTransaction?->delete();
                 $destinationTransaction?->delete();
 
@@ -291,6 +318,7 @@ class TransactionController extends Controller
                 $this->syncGoalCompletion($goal);
             }
 
+            $this->deleteTransactionInvoiceImages($transaction);
             $transaction->delete();
         });
 
@@ -325,6 +353,106 @@ class TransactionController extends Controller
         $wallet->forceFill([
             'balance' => bcadd((string) $wallet->balance, $delta, 4),
         ])->save();
+    }
+
+    private function storeInvoiceImage(UploadedFile $image, Transaction $transaction): string
+    {
+        $directory = "transaction-invoices/{$transaction->user_id}";
+        $extension = $image->extension();
+        $timestamp = strtolower(now()->format('F_j_Y_h_i_s_a'));
+        $filename = "{$timestamp}.{$extension}";
+        $counter = 2;
+
+        while (Storage::disk('public')->exists("{$directory}/{$filename}")) {
+            $filename = "{$timestamp}_{$counter}.{$extension}";
+            $counter++;
+        }
+
+        return $image->storeAs($directory, $filename, 'public');
+    }
+
+    /**
+     * @param array<int, UploadedFile> $images
+     */
+    private function storeInvoiceImages(array $images, Transaction $transaction): void
+    {
+        foreach ($images as $image) {
+            $transaction->invoiceImages()->create([
+                'path' => $this->storeInvoiceImage($image, $transaction),
+            ]);
+        }
+    }
+
+    /**
+     * @return array<int, UploadedFile>
+     */
+    private function invoiceImageFiles(Request $request): array
+    {
+        $files = [];
+        $invoiceImages = $request->file('invoice_images', []);
+
+        if ($invoiceImages instanceof UploadedFile) {
+            $files[] = $invoiceImages;
+        } elseif (is_array($invoiceImages)) {
+            foreach ($invoiceImages as $image) {
+                if ($image instanceof UploadedFile) {
+                    $files[] = $image;
+                }
+            }
+        }
+
+        $invoiceImage = $request->file('invoice_image');
+        if ($invoiceImage instanceof UploadedFile) {
+            $files[] = $invoiceImage;
+        }
+
+        return $files;
+    }
+
+    private function deleteTransactionInvoiceImages(Transaction $transaction): void
+    {
+        $transaction->loadMissing('invoiceImages');
+
+        foreach ($transaction->invoiceImages as $invoiceImage) {
+            $this->deleteInvoiceImage($invoiceImage->path);
+        }
+
+        $transaction->invoiceImages()->delete();
+
+        if ($transaction->invoice_image_path !== null) {
+            $this->deleteInvoiceImage($transaction->invoice_image_path);
+            $transaction->forceFill(['invoice_image_path' => null])->save();
+        }
+    }
+
+    /**
+     * @param mixed $ids
+     */
+    private function deleteTransactionInvoiceImagesById(Transaction $transaction, mixed $ids): void
+    {
+        if (! is_array($ids)) {
+            return;
+        }
+
+        $ids = array_values(array_filter(array_map('intval', $ids)));
+
+        if ($ids === []) {
+            return;
+        }
+
+        $invoiceImages = $transaction->invoiceImages()->whereIn('id', $ids)->get();
+
+        foreach ($invoiceImages as $invoiceImage) {
+            $this->deleteInvoiceImage($invoiceImage->path);
+            $invoiceImage->delete();
+        }
+    }
+
+    private function deleteInvoiceImage(?string $path): void
+    {
+        if ($path !== null) {
+            Storage::disk('public')->delete($path);
+        }
     }
 
     private function syncGoalCompletion($goal): void

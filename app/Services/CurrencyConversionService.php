@@ -55,7 +55,7 @@ class CurrencyConversionService
         ];
     }
 
-    private function resolveRate(int $userId, int $fromCurrencyId, int $toCurrencyId, CarbonInterface $occurredOn): ?string
+    public function resolveRate(int $userId, int $fromCurrencyId, int $toCurrencyId, CarbonInterface $occurredOn): ?string
     {
         $directRate = ExchangeRate::query()
             ->where('user_id', $userId)

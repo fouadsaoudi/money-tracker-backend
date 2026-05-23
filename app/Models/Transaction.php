@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -19,6 +20,7 @@ class Transaction extends Model
         'type',
         'amount',
         'note',
+        'invoice_image_path',
         'occurred_on',
         'reporting_currency_id',
         'exchange_rate_snapshot',
@@ -97,5 +99,13 @@ class Transaction extends Model
     public function destinationConversion(): HasOne
     {
         return $this->hasOne(WalletConversion::class, 'destination_transaction_id');
+    }
+
+    /**
+     * @return HasMany<TransactionInvoiceImage, $this>
+     */
+    public function invoiceImages(): HasMany
+    {
+        return $this->hasMany(TransactionInvoiceImage::class);
     }
 }

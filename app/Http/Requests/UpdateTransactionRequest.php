@@ -53,6 +53,13 @@ class UpdateTransactionRequest extends FormRequest
             'type' => ['sometimes', 'required', Rule::in(['incoming', 'outgoing'])],
             'amount' => ['sometimes', 'required', 'numeric', 'gt:0'],
             'note' => ['sometimes', 'nullable', 'string'],
+            'invoice_image' => ['sometimes', 'nullable', 'image', 'max:5120'],
+            'invoice_images' => ['sometimes', 'nullable', 'array', 'max:8'],
+            'invoice_images.*' => ['image', 'max:5120'],
+            'remove_invoice_image' => ['sometimes', 'boolean'],
+            'remove_invoice_images' => ['sometimes', 'boolean'],
+            'remove_invoice_image_ids' => ['sometimes', 'array'],
+            'remove_invoice_image_ids.*' => ['integer'],
             'occurred_on' => ['sometimes', 'required', 'date'],
         ];
     }
@@ -86,6 +93,26 @@ class UpdateTransactionRequest extends FormRequest
             'note' => [
                 'description' => 'Updated optional note.',
                 'example' => 'Freelance payment received',
+            ],
+            'invoice_image' => [
+                'description' => 'Additional invoice or receipt image. Deprecated; use invoice_images[] for multiple files.',
+                'example' => null,
+            ],
+            'invoice_images' => [
+                'description' => 'Additional invoice or receipt images.',
+                'example' => null,
+            ],
+            'remove_invoice_image' => [
+                'description' => 'Set true to remove current invoice images. Deprecated; use remove_invoice_images.',
+                'example' => false,
+            ],
+            'remove_invoice_images' => [
+                'description' => 'Set true to remove current invoice images.',
+                'example' => false,
+            ],
+            'remove_invoice_image_ids' => [
+                'description' => 'Specific invoice image IDs to remove.',
+                'example' => [3],
             ],
             'occurred_on' => [
                 'description' => 'Updated transaction timestamp.',

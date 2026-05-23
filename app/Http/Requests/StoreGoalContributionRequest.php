@@ -28,6 +28,8 @@ class StoreGoalContributionRequest extends FormRequest
             'amount' => ['required', 'numeric', 'gt:0'],
             'occurred_on' => ['required', 'date'],
             'note' => ['nullable', 'string'],
+            'invoice_images' => ['nullable', 'array', 'max:8'],
+            'invoice_images.*' => ['image', 'max:5120'],
         ];
     }
 }

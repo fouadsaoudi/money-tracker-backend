@@ -4,13 +4,21 @@ namespace App\Http\Controllers;
 
 use App\Http\Resources\CurrencyResource;
 use App\Http\Resources\TransactionResource;
+use App\Models\Currency;
 use App\Models\Transaction;
+use App\Models\Wallet;
+use App\Services\CurrencyConversionService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class DashboardController extends Controller
 {
+    public function __construct(
+        private readonly CurrencyConversionService $currencyConversionService,
+    ) {
+    }
+
     /**
      * @group Dashboard
      * @authenticated
@@ -19,6 +27,8 @@ class DashboardController extends Controller
     {
         $user = $request->user()->load('reportingCurrency');
         $transactions = $user->transactions()->get();
+        $wallets = $user->wallets()->with('currency')->get();
+        $walletBalance = $this->sumWalletBalances($wallets, $user);
         $recentTransactions = $user->transactions()
             ->with(['category', 'wallet.currency', 'currency', 'reportingCurrency'])
             ->orderByDesc('occurred_on')
@@ -28,9 +38,10 @@ class DashboardController extends Controller
 
         return response()->json([
             'reporting_currency' => new CurrencyResource($user->reportingCurrency),
-            'combined_balance' => $this->sumConverted($transactions),
+            'combined_balance' => $walletBalance,
             'combined_income' => $this->sumConverted($transactions->where('type', 'incoming')),
             'combined_expense' => $this->normalizeNumber(abs((float) $this->sumConverted($transactions->where('type', 'outgoing')))),
+            'daily_spending' => $this->dailySpending($user, $walletBalance, $transactions),
             'totals_by_currency' => $this->totalsByCurrency($transactions),
             'recent_transactions' => TransactionResource::collection($recentTransactions),
         ]);
@@ -119,6 +130,92 @@ class DashboardController extends Controller
         }
 
         return $this->normalizeNumber($total);
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, Wallet> $wallets
+     */
+    private function sumWalletBalances($wallets, $user): string
+    {
+        $total = 0.0;
+
+        foreach ($wallets as $wallet) {
+            if ($wallet->currency_id === $user->reporting_currency_id) {
+                $total += (float) $wallet->balance;
+
+                continue;
+            }
+
+            $snapshot = $this->currencyConversionService->snapshot(
+                $user,
+                $wallet->currency_id,
+                'incoming',
+                (string) $wallet->balance,
+                Carbon::now(),
+            );
+            $total += (float) $snapshot['converted_amount'];
+        }
+
+        return $this->normalizeNumber($total);
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, Transaction> $transactions
+     * @return array<string, string|int>
+     */
+    private function dailySpending($user, string $walletBalance, $transactions): array
+    {
+        $today = Carbon::today();
+        $daysUntilMonthEnd = max(1, $today->daysInMonth - $today->day);
+        $spentToday = abs((float) $this->sumConverted(
+            $transactions
+                ->where('type', 'outgoing')
+                ->filter(fn (Transaction $transaction) => $transaction->occurred_on->isSameDay($today))
+        ));
+        $startingBalanceToday = (float) $walletBalance + $spentToday;
+        $budgetToday = $startingBalanceToday / $daysUntilMonthEnd;
+        $secondaryBudgetToday = $this->secondaryDailyBudget($user, $budgetToday, $today);
+
+        return [
+            'days_until_month_end' => $daysUntilMonthEnd,
+            'budget_today' => $this->normalizeNumber($budgetToday),
+            'budget_today_secondary' => $secondaryBudgetToday,
+            'spent_today' => $this->normalizeNumber($spentToday),
+            'remaining_today' => $this->normalizeNumber($budgetToday - $spentToday),
+        ];
+    }
+
+    private function secondaryDailyBudget($user, float $budgetToday, Carbon $today): ?array
+    {
+        if ($user->reporting_currency_id === null) {
+            return null;
+        }
+
+        $currency = Currency::query()
+            ->active()
+            ->whereKeyNot($user->reporting_currency_id)
+            ->orderBy('code')
+            ->first();
+
+        if ($currency === null) {
+            return null;
+        }
+
+        $rate = $this->currencyConversionService->resolveRate(
+            $user->id,
+            $user->reporting_currency_id,
+            $currency->id,
+            $today,
+        );
+
+        if ($rate === null) {
+            return null;
+        }
+
+        return [
+            'amount' => $this->normalizeNumber($budgetToday * (float) $rate),
+            'currency' => new CurrencyResource($currency),
+        ];
     }
 
     /**
