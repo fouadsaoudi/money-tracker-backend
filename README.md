@@ -86,7 +86,7 @@ API will be available at:
 
 ## Database Notes
 - From **inside container** (`docker compose exec api bash`):
-  - Use `DB_HOST=db`, `DB_PORT=3306`
+  - Use `DB_HOST=db`, `DB_PORT=3307`
 - From **host machine** (running `php artisan` directly without Docker):
   - Use `DB_HOST=127.0.0.1`, `DB_PORT=3307`
 
