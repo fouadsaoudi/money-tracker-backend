@@ -23,7 +23,7 @@ Laravel API backend for the Money Tracker project.
    APP_URL=http://localhost:8080
    DB_CONNECTION=mysql
    DB_HOST=db
-   DB_PORT=3306
+   DB_PORT=3307
    DB_DATABASE=money-tracker
    DB_USERNAME=root
    DB_PASSWORD=@l8i1tUre
@@ -87,7 +87,7 @@ API will be available at:
 
 ## Database Notes
 - From **inside container** (`docker compose exec api bash`):
-  - Use `DB_HOST=db`, `DB_PORT=3306`
+  - Use `DB_HOST=db`, `DB_PORT=3307`
 - From **host machine** (running `php artisan` directly without Docker):
   - Use `DB_HOST=127.0.0.1`, `DB_PORT=3307`
 
