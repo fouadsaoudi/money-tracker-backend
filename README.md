@@ -32,10 +32,13 @@ Laravel API backend for the Money Tracker project.
    ```bash
    docker compose up -d --build
    ```
-5. Generate app key and run migrations (inside API container):
+5. Run first-time setup commands:
    ```bash
+   docker compose exec api composer install
    docker compose exec api php artisan key:generate --force
+   docker compose exec api php artisan storage:link
    docker compose exec api php artisan migrate
+   docker compose exec api php artisan optimize
    ```
 
 API will be available at:
@@ -58,6 +61,14 @@ API will be available at:
 - Run artisan command:
   ```bash
   docker compose exec api php artisan <command>
+  ```
+- Run full project setup manually:
+  ```bash
+  docker compose exec api composer install
+  docker compose exec api php artisan key:generate --force
+  docker compose exec api php artisan storage:link
+  docker compose exec api php artisan migrate
+  docker compose exec api php artisan optimize
   ```
 - View logs:
   ```bash
