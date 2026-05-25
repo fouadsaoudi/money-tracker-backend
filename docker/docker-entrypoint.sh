@@ -12,7 +12,12 @@ until mysqladmin ping -h"${DB_HOST:-db}" -P"${DB_PORT:-3306}" -u"${DB_USERNAME:-
   sleep 2
 done
 
-php artisan migrate --force
+echo "Running migrations (with retry)..."
+until php artisan migrate --force; do
+  echo "Migration failed, retrying in 3s..."
+  sleep 3
+done
+
 php artisan optimize
 
 exec php artisan serve --host=0.0.0.0 --port=8080
