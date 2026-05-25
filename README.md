@@ -32,9 +32,8 @@ Laravel API backend for the Money Tracker project.
    ```bash
    docker compose up -d --build
    ```
-5. Run first-time setup commands:
+5. Run Laravel setup commands:
    ```bash
-   docker compose exec api composer install
    docker compose exec api php artisan key:generate --force
    docker compose exec api php artisan storage:link
    docker compose exec api php artisan migrate
@@ -64,7 +63,6 @@ API will be available at:
   ```
 - Run full project setup manually:
   ```bash
-  docker compose exec api composer install
   docker compose exec api php artisan key:generate --force
   docker compose exec api php artisan storage:link
   docker compose exec api php artisan migrate
@@ -101,9 +99,9 @@ Mixing these contexts causes connection errors.
     docker compose ps
     ```
 - `vendor/autoload.php` missing
-  - Install dependencies in container:
+  - Restart API container (it auto-installs dependencies if missing):
     ```bash
-    docker compose exec api composer install
+    docker compose restart api
     ```
 
 ## Development Workflow

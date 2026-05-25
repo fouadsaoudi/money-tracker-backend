@@ -19,6 +19,9 @@ services:
       DB_DATABASE: money-tracker
       DB_USERNAME: root
       DB_PASSWORD: "@l8i1tUre"
+    command: >
+      sh -c "if [ ! -f vendor/autoload.php ]; then composer install --no-interaction; fi &&
+             php artisan serve --host=0.0.0.0 --port=8080"
     depends_on:
       - db
 
