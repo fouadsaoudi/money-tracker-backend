@@ -23,7 +23,8 @@ services:
       sh -c "composer install --no-interaction &&
              php artisan key:generate --force &&
              (php artisan storage:link || true) &&
-             php artisan migrate &&
+             until mysqladmin ping -h\"$${DB_HOST}\" -P\"$${DB_PORT}\" -u\"$${DB_USERNAME}\" -p\"$${DB_PASSWORD}\" --silent; do sleep 2; done &&
+             until php artisan migrate; do sleep 3; done &&
              php artisan optimize"
 
   api:

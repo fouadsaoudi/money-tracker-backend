@@ -40,6 +40,7 @@ Laravel API backend for the Money Tracker project.
    ```bash
    docker compose run --rm setup
    ```
+   This command waits for MySQL to become ready before running migrations.
 7. Start API:
    ```bash
    docker compose up -d api
