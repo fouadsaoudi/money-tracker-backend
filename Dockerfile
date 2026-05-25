@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     libxml2-dev \
     libsqlite3-dev \
     default-mysql-client \
+    nano \
     && docker-php-ext-install pdo_mysql mbstring bcmath pcntl \
     && rm -rf /var/lib/apt/lists/*
 
