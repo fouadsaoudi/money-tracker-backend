@@ -28,16 +28,21 @@ Laravel API backend for the Money Tracker project.
    DB_USERNAME=root
    DB_PASSWORD=@l8i1tUre
    ```
-4. Build and start containers:
+4. Build images:
    ```bash
-   docker compose up -d --build
+   docker compose build
    ```
-5. Run Laravel setup commands:
+5. Start database:
    ```bash
-   docker compose exec api php artisan key:generate --force
-   docker compose exec api php artisan storage:link
-   docker compose exec api php artisan migrate
-   docker compose exec api php artisan optimize
+   docker compose up -d db
+   ```
+6. Run one-time project setup:
+   ```bash
+   docker compose run --rm setup
+   ```
+7. Start API:
+   ```bash
+   docker compose up -d api
    ```
 
 API will be available at:
@@ -63,10 +68,7 @@ API will be available at:
   ```
 - Run full project setup manually:
   ```bash
-  docker compose exec api php artisan key:generate --force
-  docker compose exec api php artisan storage:link
-  docker compose exec api php artisan migrate
-  docker compose exec api php artisan optimize
+  docker compose run --rm setup
   ```
 - View logs:
   ```bash
@@ -99,9 +101,10 @@ Mixing these contexts causes connection errors.
     docker compose ps
     ```
 - `vendor/autoload.php` missing
-  - Restart API container (it auto-installs dependencies if missing):
+  - Run setup first, then start api:
     ```bash
-    docker compose restart api
+    docker compose run --rm setup
+    docker compose up -d api
     ```
 
 ## Development Workflow

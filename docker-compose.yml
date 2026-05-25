@@ -1,4 +1,31 @@
 services:
+  setup:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+      - vendor_data:/var/www/html/vendor
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8080
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: money-tracker
+      DB_USERNAME: root
+      DB_PASSWORD: "@l8i1tUre"
+    depends_on:
+      - db
+    command: >
+      sh -c "composer install --no-interaction &&
+             php artisan key:generate --force &&
+             (php artisan storage:link || true) &&
+             php artisan migrate &&
+             php artisan optimize"
+
   api:
     build:
       context: .
