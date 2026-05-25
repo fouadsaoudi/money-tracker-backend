@@ -1,9 +1,10 @@
+version: "3.8"
+
 services:
   api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: money-tracker-api
     working_dir: /var/www/html
     volumes:
       - ./:/var/www/html
@@ -30,7 +31,6 @@ services:
 
   db:
     image: mysql:8.4
-    container_name: money-tracker-db
     restart: unless-stopped
     ports:
       - "3307:3306"
