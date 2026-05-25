@@ -34,10 +34,11 @@ Laravel API backend for the Money Tracker project.
    ```
 5. Run Laravel setup commands:
    ```bash
-   docker compose exec api php artisan key:generate --force
-   docker compose exec api php artisan storage:link
-   docker compose exec api php artisan migrate
-   docker compose exec api php artisan optimize
+   docker compose exec api bash
+   php artisan key:generate --force
+   php artisan storage:link
+   php artisan migrate
+   php artisan optimize
    ```
 
 API will be available at:
@@ -63,10 +64,11 @@ API will be available at:
   ```
 - Run full project setup manually:
   ```bash
-  docker compose exec api php artisan key:generate --force
-  docker compose exec api php artisan storage:link
-  docker compose exec api php artisan migrate
-  docker compose exec api php artisan optimize
+  docker compose exec api bash
+   php artisan key:generate --force
+   php artisan storage:link
+   php artisan migrate
+   php artisan optimize
   ```
 - View logs:
   ```bash
