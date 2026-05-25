@@ -19,11 +19,6 @@ services:
       DB_DATABASE: money-tracker
       DB_USERNAME: root
       DB_PASSWORD: "@l8i1tUre"
-    command: >
-      sh -c "composer install &&
-             php artisan key:generate --force &&
-             php artisan migrate --force &&
-             php artisan serve --host=0.0.0.0 --port=8080"
     depends_on:
       - db
 
