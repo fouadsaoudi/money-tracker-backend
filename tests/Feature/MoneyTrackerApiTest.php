@@ -354,6 +354,22 @@ class MoneyTrackerApiTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_dashboard_ignores_missing_rate_for_zero_balance_wallets(): void
+    {
+        $user = $this->signInFinancialUser();
+        $lbp = Currency::query()->where('code', 'LBP')->firstOrFail();
+
+        $user->wallets()->create([
+            'currency_id' => $lbp->id,
+            'name' => 'Cash LBP',
+            'balance' => '0.0000',
+        ]);
+
+        $this->getJson('/api/dashboard')
+            ->assertOk()
+            ->assertJsonPath('combined_balance', '0.0000');
+    }
+
     public function test_transaction_can_store_and_remove_invoice_images(): void
     {
         Storage::fake('public');

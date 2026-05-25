@@ -27,6 +27,13 @@ class CurrencyConversionService
             ? bcmul($amount, '-1', 8)
             : bcadd($amount, '0', 8);
 
+        if (bccomp($signedAmount, '0', 8) === 0) {
+            return [
+                'rate' => '1.00000000',
+                'converted_amount' => '0.0000',
+            ];
+        }
+
         if ($currencyId === $reportingCurrencyId) {
             return [
                 'rate' => '1.00000000',
