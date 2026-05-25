@@ -23,27 +23,21 @@ Laravel API backend for the Money Tracker project.
    APP_URL=http://localhost:8080
    DB_CONNECTION=mysql
    DB_HOST=db
-   DB_PORT=3307
+   DB_PORT=3306
    DB_DATABASE=money-tracker
    DB_USERNAME=root
    DB_PASSWORD=@l8i1tUre
    ```
-4. Build images:
+4. Build and start containers:
    ```bash
-   docker compose build
+   docker compose up -d --build
    ```
-5. Start database:
+5. Run Laravel setup commands:
    ```bash
-   docker compose up -d db
-   ```
-6. Run one-time project setup:
-   ```bash
-   docker compose run --rm setup
-   ```
-   This command waits for MySQL to become ready before running migrations.
-7. Start API:
-   ```bash
-   docker compose up -d api
+   docker compose exec api php artisan key:generate --force
+   docker compose exec api php artisan storage:link
+   docker compose exec api php artisan migrate
+   docker compose exec api php artisan optimize
    ```
 
 API will be available at:
@@ -69,7 +63,10 @@ API will be available at:
   ```
 - Run full project setup manually:
   ```bash
-  docker compose run --rm setup
+  docker compose exec api php artisan key:generate --force
+  docker compose exec api php artisan storage:link
+  docker compose exec api php artisan migrate
+  docker compose exec api php artisan optimize
   ```
 - View logs:
   ```bash
@@ -87,7 +84,7 @@ API will be available at:
 
 ## Database Notes
 - From **inside container** (`docker compose exec api bash`):
-  - Use `DB_HOST=db`, `DB_PORT=3307`
+  - Use `DB_HOST=db`, `DB_PORT=3306`
 - From **host machine** (running `php artisan` directly without Docker):
   - Use `DB_HOST=127.0.0.1`, `DB_PORT=3307`
 
@@ -102,10 +99,10 @@ Mixing these contexts causes connection errors.
     docker compose ps
     ```
 - `vendor/autoload.php` missing
-  - Run setup first, then start api:
+  - Install dependencies, then retry:
     ```bash
-    docker compose run --rm setup
-    docker compose up -d api
+    docker compose exec api composer install
+    docker compose exec api php artisan migrate
     ```
 
 ## Development Workflow
