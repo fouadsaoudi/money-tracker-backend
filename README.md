@@ -110,6 +110,3 @@ Mixing these contexts causes connection errors.
 ## Development Workflow
 - Source code is bind-mounted (`./:/var/www/html`) so changes reflect immediately.
 - `vendor` is stored in a named Docker volume for dependency stability.
-
-## License
-MIT
