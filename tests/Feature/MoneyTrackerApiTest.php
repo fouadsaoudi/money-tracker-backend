@@ -652,6 +652,64 @@ class MoneyTrackerApiTest extends TestCase
         $this->getJson('/api/transactions/'.$transaction->id)->assertNotFound();
     }
 
+    public function test_transactions_list_is_paginated(): void
+    {
+        $user = $this->signInFinancialUser();
+        $usd = Currency::query()->where('code', 'USD')->firstOrFail();
+        $category = $user->categories()->where('name', 'Other')->firstOrFail();
+
+        foreach (range(1, 3) as $index) {
+            Transaction::query()->create([
+                'user_id' => $user->id,
+                'category_id' => $category->id,
+                'currency_id' => $usd->id,
+                'type' => 'incoming',
+                'amount' => '15.0000',
+                'note' => 'Gift '.$index,
+                'occurred_on' => '2026-05-0'.$index.' 08:00:00',
+                'reporting_currency_id' => $usd->id,
+                'exchange_rate_snapshot' => '1.00000000',
+                'converted_amount' => '15.0000',
+            ]);
+        }
+
+        $this->getJson('/api/transactions?per_page=2')
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('meta.current_page', 1)
+            ->assertJsonPath('meta.last_page', 2)
+            ->assertJsonPath('meta.total', 3);
+
+        $this->getJson('/api/transactions?per_page=2&page=2')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('meta.current_page', 2)
+            ->assertJsonPath('meta.last_page', 2)
+            ->assertJsonPath('meta.total', 3);
+
+        $this->getJson('/api/transactions?from=2026-05-02&to=2026-05-02')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.note', 'Gift 2')
+            ->assertJsonPath('meta.total', 1);
+
+        $giftTwo = Transaction::query()->where('note', 'Gift 2')->firstOrFail();
+
+        $this->getJson('/api/transactions?search=Gift+2')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $giftTwo->id);
+
+        $this->getJson('/api/transactions?search=Other')
+            ->assertOk()
+            ->assertJsonCount(3, 'data');
+
+        $this->getJson('/api/transactions?search='.$giftTwo->id)
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $giftTwo->id);
+    }
+
     private function signInFinancialUser(?string $email = null): User
     {
         $user = $this->createFinancialUser($email);

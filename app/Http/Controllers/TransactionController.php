@@ -57,10 +57,17 @@ class TransactionController extends Controller
         }
 
         if ($request->filled('search')) {
-            $query->where('note', 'like', '%'.((string) $request->string('search')).'%');
+            $search = (string) $request->string('search');
+            $query->where(function ($query) use ($search): void {
+                $query->where('note', 'like', '%'.$search.'%')
+                    ->orWhere('transactions.id', $search)
+                    ->orWhereHas('category', fn ($query) => $query->where('name', 'like', '%'.$search.'%'));
+            });
         }
 
-        return TransactionResource::collection($query->paginate(15)->withQueryString());
+        $perPage = min(max($request->integer('per_page', 5), 1), 100);
+
+        return TransactionResource::collection($query->paginate($perPage)->withQueryString());
     }
 
     /**
