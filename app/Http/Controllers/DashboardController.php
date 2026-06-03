@@ -11,6 +11,7 @@ use App\Services\CurrencyConversionService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class DashboardController extends Controller
 {
@@ -146,13 +147,22 @@ class DashboardController extends Controller
                 continue;
             }
 
-            $snapshot = $this->currencyConversionService->snapshot(
-                $user,
-                $wallet->currency_id,
-                'incoming',
-                (string) $wallet->balance,
-                Carbon::now(),
-            );
+            try {
+                $snapshot = $this->currencyConversionService->snapshot(
+                    $user,
+                    $wallet->currency_id,
+                    'incoming',
+                    (string) $wallet->balance,
+                    Carbon::now(),
+                );
+            } catch (ValidationException $exception) {
+                if (array_key_exists('currency_id', $exception->errors())) {
+                    continue;
+                }
+
+                throw $exception;
+            }
+
             $total += (float) $snapshot['converted_amount'];
         }
 
@@ -166,7 +176,7 @@ class DashboardController extends Controller
     private function dailySpending($user, string $walletBalance, $transactions): array
     {
         $today = Carbon::today();
-        $daysUntilMonthEnd = max(1, $today->daysInMonth - $today->day);
+        $daysUntilMonthEnd = max(1, $today->daysInMonth - $today->day + 1);
         $spentToday = abs((float) $this->sumConverted(
             $transactions
                 ->where('type', 'outgoing')
@@ -177,6 +187,7 @@ class DashboardController extends Controller
         $secondaryBudgetToday = $this->secondaryDailyBudget($user, $budgetToday, $today);
 
         return [
+            'as_of_date' => $today->toDateString(),
             'days_until_month_end' => $daysUntilMonthEnd,
             'budget_today' => $this->normalizeNumber($budgetToday),
             'budget_today_secondary' => $secondaryBudgetToday,

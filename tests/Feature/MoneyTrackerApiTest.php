@@ -321,12 +321,12 @@ class MoneyTrackerApiTest extends TestCase
         $this->getJson('/api/dashboard')
             ->assertOk()
             ->assertJsonPath('combined_balance', '500.0000')
-            ->assertJsonPath('daily_spending.days_until_month_end', 11)
-            ->assertJsonPath('daily_spending.budget_today', '48.1818')
-            ->assertJsonPath('daily_spending.budget_today_secondary.amount', '4818181.8182')
+            ->assertJsonPath('daily_spending.days_until_month_end', 12)
+            ->assertJsonPath('daily_spending.budget_today', '44.1667')
+            ->assertJsonPath('daily_spending.budget_today_secondary.amount', '4416666.6667')
             ->assertJsonPath('daily_spending.budget_today_secondary.currency.code', 'LBP')
             ->assertJsonPath('daily_spending.spent_today', '30.0000')
-            ->assertJsonPath('daily_spending.remaining_today', '18.1818');
+            ->assertJsonPath('daily_spending.remaining_today', '14.1667');
 
         Carbon::setTestNow();
     }
@@ -346,10 +346,44 @@ class MoneyTrackerApiTest extends TestCase
             ->assertJsonPath('combined_balance', '2400.0000')
             ->assertJsonPath('combined_income', '0.0000')
             ->assertJsonPath('combined_expense', '0.0000')
-            ->assertJsonPath('daily_spending.days_until_month_end', 11)
-            ->assertJsonPath('daily_spending.budget_today', '218.1818')
+            ->assertJsonPath('daily_spending.days_until_month_end', 12)
+            ->assertJsonPath('daily_spending.budget_today', '200.0000')
             ->assertJsonPath('daily_spending.spent_today', '0.0000')
-            ->assertJsonPath('daily_spending.remaining_today', '218.1818');
+            ->assertJsonPath('daily_spending.remaining_today', '200.0000');
+
+        Carbon::setTestNow();
+    }
+
+    public function test_dashboard_rolls_daily_spending_over_at_beirut_midnight(): void
+    {
+        Carbon::setTestNow('2026-06-01 21:30:00 UTC');
+
+        $user = $this->signInFinancialUser();
+        $category = $user->categories()->where('name', 'Food')->firstOrFail();
+        $usd = Currency::query()->where('code', 'USD')->firstOrFail();
+        $user->wallets()->where('currency_id', $usd->id)->firstOrFail()
+            ->forceFill(['balance' => '290.0000'])
+            ->save();
+
+        Transaction::query()->create([
+            'user_id' => $user->id,
+            'category_id' => $category->id,
+            'currency_id' => $usd->id,
+            'type' => 'outgoing',
+            'amount' => '10.0000',
+            'occurred_on' => '2026-06-01 20:00:00',
+            'reporting_currency_id' => $usd->id,
+            'exchange_rate_snapshot' => '1.00000000',
+            'converted_amount' => '-10.0000',
+        ]);
+
+        $this->getJson('/api/dashboard')
+            ->assertOk()
+            ->assertJsonPath('daily_spending.as_of_date', '2026-06-02')
+            ->assertJsonPath('daily_spending.days_until_month_end', 29)
+            ->assertJsonPath('daily_spending.budget_today', '10.0000')
+            ->assertJsonPath('daily_spending.spent_today', '0.0000')
+            ->assertJsonPath('daily_spending.remaining_today', '10.0000');
 
         Carbon::setTestNow();
     }
@@ -363,6 +397,22 @@ class MoneyTrackerApiTest extends TestCase
             'currency_id' => $lbp->id,
             'name' => 'Cash LBP',
             'balance' => '0.0000',
+        ]);
+
+        $this->getJson('/api/dashboard')
+            ->assertOk()
+            ->assertJsonPath('combined_balance', '0.0000');
+    }
+
+    public function test_dashboard_ignores_missing_rate_for_non_reporting_wallet_balances(): void
+    {
+        $user = $this->signInFinancialUser();
+        $lbp = Currency::query()->where('code', 'LBP')->firstOrFail();
+
+        $user->wallets()->create([
+            'currency_id' => $lbp->id,
+            'name' => 'Cash LBP',
+            'balance' => '150000.0000',
         ]);
 
         $this->getJson('/api/dashboard')
