@@ -420,6 +420,37 @@ class MoneyTrackerApiTest extends TestCase
             ->assertJsonPath('combined_balance', '0.0000');
     }
 
+    public function test_dashboard_uses_transaction_snapshots_when_current_wallet_rate_is_missing(): void
+    {
+        $user = $this->signInFinancialUser();
+        $category = $user->categories()->where('name', 'Salary')->firstOrFail();
+        $usd = Currency::query()->where('code', 'USD')->firstOrFail();
+        $lbp = Currency::query()->where('code', 'LBP')->firstOrFail();
+        $lbpWallet = $user->wallets()->create([
+            'currency_id' => $lbp->id,
+            'name' => 'Cash LBP',
+            'balance' => '150000.0000',
+        ]);
+
+        Transaction::query()->create([
+            'user_id' => $user->id,
+            'category_id' => $category->id,
+            'wallet_id' => $lbpWallet->id,
+            'currency_id' => $lbp->id,
+            'type' => 'incoming',
+            'amount' => '150000.0000',
+            'occurred_on' => '2026-05-02 08:00:00',
+            'reporting_currency_id' => $usd->id,
+            'exchange_rate_snapshot' => '0.00001000',
+            'converted_amount' => '1.5000',
+        ]);
+
+        $this->getJson('/api/dashboard')
+            ->assertOk()
+            ->assertJsonPath('combined_balance', '1.5000')
+            ->assertJsonPath('combined_income', '1.5000');
+    }
+
     public function test_transaction_can_store_and_remove_invoice_images(): void
     {
         Storage::fake('public');

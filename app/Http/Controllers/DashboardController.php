@@ -11,7 +11,6 @@ use App\Services\CurrencyConversionService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\ValidationException;
 
 class DashboardController extends Controller
 {
@@ -29,7 +28,7 @@ class DashboardController extends Controller
         $user = $request->user()->load('reportingCurrency');
         $transactions = $user->transactions()->get();
         $wallets = $user->wallets()->with('currency')->get();
-        $walletBalance = $this->sumWalletBalances($wallets, $user);
+        $walletBalance = $this->sumWalletBalances($wallets, $user, $transactions);
         $recentTransactions = $user->transactions()
             ->with(['category', 'wallet.currency', 'currency', 'reportingCurrency'])
             ->orderByDesc('occurred_on')
@@ -135,8 +134,9 @@ class DashboardController extends Controller
 
     /**
      * @param \Illuminate\Support\Collection<int, Wallet> $wallets
+     * @param \Illuminate\Support\Collection<int, Transaction> $transactions
      */
-    private function sumWalletBalances($wallets, $user): string
+    private function sumWalletBalances($wallets, $user, $transactions): string
     {
         $total = 0.0;
 
@@ -147,23 +147,22 @@ class DashboardController extends Controller
                 continue;
             }
 
-            try {
-                $snapshot = $this->currencyConversionService->snapshot(
-                    $user,
-                    $wallet->currency_id,
-                    'incoming',
-                    (string) $wallet->balance,
-                    Carbon::now(),
-                );
-            } catch (ValidationException $exception) {
-                if (array_key_exists('currency_id', $exception->errors())) {
-                    continue;
-                }
+            $rate = $this->currencyConversionService->resolveRate(
+                $user->id,
+                $wallet->currency_id,
+                $user->reporting_currency_id,
+                Carbon::now(),
+            );
 
-                throw $exception;
+            if ($rate === null) {
+                $total += (float) $this->sumConverted(
+                    $transactions->where('wallet_id', $wallet->id)
+                );
+
+                continue;
             }
 
-            $total += (float) $snapshot['converted_amount'];
+            $total += (float) bcmul((string) $wallet->balance, $rate, 8);
         }
 
         return $this->normalizeNumber($total);
